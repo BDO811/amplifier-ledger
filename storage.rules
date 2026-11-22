@@ -1,0 +1,14 @@
+rules_version = '2';
+// Firebase Storage rules for project amplifier-ledger. Paste into Firebase console › Storage › Rules.
+// Keep the email list identical to the Firestore rules' allowed accounts.
+service firebase.storage {
+  match /b/{bucket}/o {
+    match /proposals/{rest=**} {
+      allow read: if request.auth != null
+        && request.auth.token.email_verified == true
+        && request.auth.token.email in ['amit@amplifierhealth.com', 'mehta@helix.harvard7.net'];
+      allow write: if false;   // only the sync service account (it bypasses rules) uploads
+    }
+    match /{all=**} { allow read, write: if false; }
+  }
+}

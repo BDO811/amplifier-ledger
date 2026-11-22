@@ -27,6 +27,11 @@ function mountLedger(R, OPT) {
   /* Active: engaged past the proposal but not yet paying. Paying customers live in their own tab. */
   const isActive = c => !c.dismissed && (pipe(c) === "call" || pipe(c) === "working");
   const isPaying = c => !c.dismissed && pipe(c) === "paying";
+  // Proposals stored in the ledger's private Firebase Storage have url "fbs:<path>"; they open
+  // through the signed-in user's token (see openFile), never through a public link.
+  const pAttr = x => String(x.url || "").startsWith("fbs:")
+    ? `href="#" data-fbs="${esc(x.url.slice(4))}"`
+    : `href="${esc(x.url)}" target="_blank" rel="noopener"`;
   const props = c => { const l = (c.proposals || []).slice(); if (c.drive && !l.some(x => x.url === c.drive)) l.push({ name: "Proposal", url: c.drive, t: null }); return l.sort((a, b) => (b.t || 0) - (a.t || 0)); };
   const why = c => awaiting(c) ? `We wrote last, ${days(c.last)}d ago` : quiet(c) ? `No contact in ${days(c.last)}d` : "";
   const ICON = {
@@ -190,7 +195,7 @@ function mountLedger(R, OPT) {
       <div class="cardhit" data-open="${esc(c.id)}" role="button" tabindex="0" aria-label="Open ${esc(c.name)}">
         <span class="top">${opts.drag ? `<span class="grip">${ICON.grip}</span>` : ""}<span class="mono-av">${esc(initials(c.name))}</span><span class="nm"><b>${esc(c.name)}</b><small>${esc(c.contact || c.status)}</small></span></span>
         ${opts.compact ? "" : `<span class="mid"><span><small>Last touch</small><b class="${fu ? "stale" : ""}">${rel(c.last)}</b></span>${spark(c)}</span>`}
-        <span class="foot">${flag}${props(c).length ? `<a class="tag pdf" href="${esc(props(c)[0].url)}" target="_blank" rel="noopener" title="Open the proposal PDF" data-stop>PDF${props(c).length > 1 ? " " + props(c).length : ""}</a>` : ""}<span class="own" title="${esc(c.owner)}">${INIT[own] || initials(own || "?")}</span></span>
+        <span class="foot">${flag}${props(c).length ? `<a class="tag pdf" ${pAttr(props(c)[0])} title="Open the proposal PDF" data-stop>PDF${props(c).length > 1 ? " " + props(c).length : ""}</a>` : ""}<span class="own" title="${esc(c.owner)}">${INIT[own] || initials(own || "?")}</span></span>
       </div>
       <div class="pipe" role="group" aria-label="Status">${steps}</div>
       <div class="acts">${c.dismissed
@@ -201,6 +206,15 @@ function mountLedger(R, OPT) {
 
   function wireCards(root) {
     root.querySelectorAll("[data-stop]").forEach(a => a.addEventListener("click", e => e.stopPropagation()));
+    root.querySelectorAll("[data-fbs]").forEach(a => a.addEventListener("click", e => {
+      e.preventDefault(); e.stopPropagation();
+      if (!OPT.openFile) return toast("Proposals open on the live page only.");
+      const w = window.open("", "_blank");
+      OPT.openFile(a.dataset.fbs).then(blob => {
+        const u = URL.createObjectURL(blob);
+        if (w) w.location.href = u; else location.href = u;
+      }).catch(err => { if (w) w.close(); toast("Could not open the proposal: " + esc(err.message || String(err))); });
+    }));
     root.querySelectorAll("[data-open]").forEach(b => { b.onclick = () => drawer(b.dataset.open); b.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); drawer(b.dataset.open); } }; });
     root.querySelectorAll("[data-set]").forEach(b => b.onclick = e => { e.stopPropagation(); setPipe(b.dataset.id, b.dataset.set); });
     root.querySelectorAll("[data-dismiss]").forEach(b => b.onclick = e => { e.stopPropagation(); dismiss(b.dataset.dismiss); });
@@ -256,7 +270,7 @@ function mountLedger(R, OPT) {
       <div class="pipe big" role="group" aria-label="Status">${PIPE.map(([k, l], j) => `<button class="step${k === p ? " on" : ""}${PIPE.findIndex(x => x[0] === p) > j ? " done" : ""}" data-set="${k}" data-id="${esc(c.id)}" aria-pressed="${k === p}" style="--c:${P[k][2]}" ${c.dismissed ? "disabled" : ""}><span>${l}</span></button>`).join("")}</div>
       <div class="kv glass"><div><span>Status</span><p>${esc(c.status)}</p></div><div><span>Next step</span><p>${esc(c.next)}</p></div>
         ${c.contact ? `<div><span>Contacts</span><p>${esc(c.contact)}</p></div>` : ""}
-        ${props(c).length ? `<div><span>Proposals · ${props(c).length}</span>${props(c).map(x => `<p><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name || "Proposal")}</a>${x.t ? ` <span class="mono muted">${fmt(x.t)}</span>` : ""}</p>`).join("")}</div>` : ""}
+        ${props(c).length ? `<div><span>Proposals · ${props(c).length}</span>${props(c).map(x => `<p><a ${pAttr(x)}>${esc(x.name || "Proposal")}</a>${x.t ? ` <span class="mono muted">${fmt(x.t)}</span>` : ""}</p>`).join("")}</div>` : ""}
         <div><span>Last touch</span><p>${c.last ? fmt(c.last) + " · " + rel(c.last) : "No email yet"}</p></div></div>
       <div class="drawer-acts">${c.dismissed
         ? `<button class="cta ghost" data-restore="${esc(c.id)}">${ICON.undo} Restore to pipeline</button>`
@@ -313,6 +327,12 @@ function mountLedger(R, OPT) {
     ui = mountLedger(R, {
       mode: "live",
       signIn: () => auth.signInWithPopup(provider), signOut: () => auth.signOut(),
+      openFile: async path => {
+        const tok = await auth.currentUser.getIdToken();
+        const r = await fetch(`https://firebasestorage.googleapis.com/v0/b/${CFG.firebase.storageBucket}/o/${encodeURIComponent(path)}?alt=media`, { headers: { Authorization: `Firebase ${tok}` } });
+        if (!r.ok) throw new Error(r.status === 403 ? "no access" : `error ${r.status}`);
+        return new Blob([await r.arrayBuffer()], { type: "application/pdf" });
+      },
       update: (id, p) => db.collection("opportunities").doc(id).set({ ...p, editedAt: firebase.firestore.FieldValue.serverTimestamp(), editedBy: auth.currentUser ? auth.currentUser.email : null }, { merge: true })
     });
     let unsub = null;
