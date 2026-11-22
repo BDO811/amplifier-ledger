@@ -8,7 +8,7 @@ function mountLedger(R, OPT) {
     ["paying", "Paying", "var(--mint)"]];
   const P = Object.fromEntries(PIPE.map(p => [p[0], p]));
   const FROM_STAGE = { active: "paying", advanced: "working", partner: "working", early: "call", stalled: "call", proposal: "proposal", target: "proposal" };
-  const VIEWS = [["active", "Active"], ["followup", "Follow-up"], ["board", "Board"], ["all", "All"], ["past", "Past"]];
+  const VIEWS = [["active", "Active"], ["followup", "Follow-up"], ["board", "Board"], ["paying", "Paying"], ["all", "All"], ["past", "Past"]];
   const INIT = { Amit: "AM", Jeremy: "JB", Camille: "CN", Troy: "TA", Maxwell: "MS", Max: "MM", Derek: "DD", Bryan: "BR" };
   const DIR = { out: "Sent", in: "Received", int: "Internal", cal: "Calendar" };
   let VIEW = "active";
@@ -23,9 +23,11 @@ function mountLedger(R, OPT) {
   const awaiting = c => c.threads.length && c.threads[0].d === "out" && days(c.last) >= 7;
   const quiet = c => c.last && days(c.last) >= 21;
   /* Follow-up: we emailed last and heard nothing for 7+ days, or nobody has written either way in 21+ days. */
-  const needsFollow = c => !c.dismissed && (awaiting(c) || quiet(c));
-  /* Active: engaged past the proposal, from first call through paying. */
-  const isActive = c => !c.dismissed && pipe(c) !== "proposal";
+  const needsFollow = c => !c.dismissed && pipe(c) !== "paying" && (awaiting(c) || quiet(c));
+  /* Active: engaged past the proposal but not yet paying. Paying customers live in their own tab. */
+  const isActive = c => !c.dismissed && (pipe(c) === "call" || pipe(c) === "working");
+  const isPaying = c => !c.dismissed && pipe(c) === "paying";
+  const props = c => { const l = (c.proposals || []).slice(); if (c.drive && !l.some(x => x.url === c.drive)) l.push({ name: "Proposal", url: c.drive, t: null }); return l.sort((a, b) => (b.t || 0) - (a.t || 0)); };
   const why = c => awaiting(c) ? `We wrote last, ${days(c.last)}d ago` : quiet(c) ? `No contact in ${days(c.last)}d` : "";
   const ICON = {
     search: '<svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><circle cx="11" cy="11" r="7"/><path d="m20 20-3.5-3.5"/></svg>',
@@ -112,12 +114,13 @@ function mountLedger(R, OPT) {
     if (view === "past") return sorted(b.filter(c => c.dismissed)).sort((a, c2) => (c2.dismissedAt || 0) - (a.dismissedAt || 0));
     if (view === "followup") return b.filter(needsFollow).sort((a, c2) => (a.last || 0) - (c2.last || 0));
     if (view === "active") return sorted(b.filter(isActive));
+    if (view === "paying") return sorted(b.filter(isPaying));
     return sorted(b.filter(c => !c.dismissed));
   }
 
   function shell() {
     const live = st.data.filter(c => !c.dismissed);
-    const counts = { active: live.filter(isActive).length, followup: live.filter(needsFollow).length, board: live.length, all: live.length, past: st.data.filter(c => c.dismissed).length };
+    const counts = { active: live.filter(isActive).length, followup: live.filter(needsFollow).length, board: live.length, paying: live.filter(isPaying).length, all: live.length, past: st.data.filter(c => c.dismissed).length };
     const ownerInit = st.user ? (st.user.displayName || st.user.email || "AM").split(/[\s@.]/).slice(0, 2).map(w => w[0]).join("").toUpperCase() : "AM";
     const tile = (k, label, sub, i) => { const n = live.filter(c => pipe(c) === k).length;
       return `<button class="tile glass" data-tile="${k}" style="--i:${i}"><span class="ic" style="background:${P[k][2]}">${i + 1}</span><span><small>${label}</small><b>${n}</b><span class="sub">${sub}</span></span></button>`; };
@@ -152,7 +155,7 @@ function mountLedger(R, OPT) {
     $$("[data-view]").forEach(b => b.onclick = () => go(b.dataset.view));
     $$("[data-sort]").forEach(b => b.onclick = () => { st.sort = b.dataset.sort; $$("[data-sort]").forEach(x => x.setAttribute("aria-pressed", x === b)); slidePill($("#seg")); body(true); });
     $$("[data-chip]").forEach(b => b.onclick = () => { st.chip = b.dataset.chip; $$("[data-chip]").forEach(x => x.setAttribute("aria-pressed", x === b)); body(true); });
-    $$("[data-tile]").forEach(b => b.onclick = () => { go("board"); requestAnimationFrame(() => { const col = R.querySelector(`.col[data-col="${b.dataset.tile}"]`); col && col.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" }); }); });
+    $$("[data-tile]").forEach(b => b.onclick = () => { if (b.dataset.tile === "paying") return go("paying"); go("board"); requestAnimationFrame(() => { const col = R.querySelector(`.col[data-col="${b.dataset.tile}"]`); col && col.scrollIntoView({ behavior: "smooth", inline: "center", block: "nearest" }); }); });
     $("#bell").onclick = () => go("followup");
     $("#q").oninput = e => { st.q = e.target.value; body(false); };
     $("#me").onclick = () => { if (OPT.signOut && st.user) OPT.signOut(); };
@@ -168,8 +171,9 @@ function mountLedger(R, OPT) {
   }
 
   const TITLES = {
-    active: ["Active opportunities", n => `${n} engaged past the proposal: first call, working through it, or paying.`],
-    followup: ["Needs follow-up", n => `${n} where we wrote last and heard nothing in 7+ days, or nobody has written in 21+ days. Oldest first.`],
+    active: ["Active opportunities", n => `${n} past the proposal and not yet paying: first call or working through it.`],
+    followup: ["Needs follow-up", n => `${n} open opportunities where we wrote last and heard nothing in 7+ days, or nobody has written in 21+ days. Oldest first. Paying customers are not listed here.`],
+    paying: ["Paying customers", n => `${n} closed and paying. Moved off the Active view; move one back with its status bar if it stops paying.`],
     board: ["Pipeline board", n => `${n} open opportunities. Drag a card to another column, or tap a step on the card.`],
     all: ["All open opportunities", n => `${n} open opportunities across every status.`],
     past: ["Past opportunities", n => `${n} dismissed. They stay here with their history; restore any of them to put them back in the pipeline.`] };
@@ -186,7 +190,7 @@ function mountLedger(R, OPT) {
       <div class="cardhit" data-open="${esc(c.id)}" role="button" tabindex="0" aria-label="Open ${esc(c.name)}">
         <span class="top">${opts.drag ? `<span class="grip">${ICON.grip}</span>` : ""}<span class="mono-av">${esc(initials(c.name))}</span><span class="nm"><b>${esc(c.name)}</b><small>${esc(c.contact || c.status)}</small></span></span>
         ${opts.compact ? "" : `<span class="mid"><span><small>Last touch</small><b class="${fu ? "stale" : ""}">${rel(c.last)}</b></span>${spark(c)}</span>`}
-        <span class="foot">${flag}<span class="own" title="${esc(c.owner)}">${INIT[own] || initials(own || "?")}</span></span>
+        <span class="foot">${flag}${props(c).length ? `<a class="tag pdf" href="${esc(props(c)[0].url)}" target="_blank" rel="noopener" title="Open the proposal PDF" data-stop>PDF${props(c).length > 1 ? " " + props(c).length : ""}</a>` : ""}<span class="own" title="${esc(c.owner)}">${INIT[own] || initials(own || "?")}</span></span>
       </div>
       <div class="pipe" role="group" aria-label="Status">${steps}</div>
       <div class="acts">${c.dismissed
@@ -196,6 +200,7 @@ function mountLedger(R, OPT) {
   }
 
   function wireCards(root) {
+    root.querySelectorAll("[data-stop]").forEach(a => a.addEventListener("click", e => e.stopPropagation()));
     root.querySelectorAll("[data-open]").forEach(b => { b.onclick = () => drawer(b.dataset.open); b.onkeydown = e => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); drawer(b.dataset.open); } }; });
     root.querySelectorAll("[data-set]").forEach(b => b.onclick = e => { e.stopPropagation(); setPipe(b.dataset.id, b.dataset.set); });
     root.querySelectorAll("[data-dismiss]").forEach(b => b.onclick = e => { e.stopPropagation(); dismiss(b.dataset.dismiss); });
@@ -246,7 +251,7 @@ function mountLedger(R, OPT) {
       <div class="pipe big" role="group" aria-label="Status">${PIPE.map(([k, l], j) => `<button class="step${k === p ? " on" : ""}${PIPE.findIndex(x => x[0] === p) > j ? " done" : ""}" data-set="${k}" data-id="${esc(c.id)}" aria-pressed="${k === p}" style="--c:${P[k][2]}" ${c.dismissed ? "disabled" : ""}><span>${l}</span></button>`).join("")}</div>
       <div class="kv glass"><div><span>Status</span><p>${esc(c.status)}</p></div><div><span>Next step</span><p>${esc(c.next)}</p></div>
         ${c.contact ? `<div><span>Contacts</span><p>${esc(c.contact)}</p></div>` : ""}
-        ${c.drive ? `<div><span>Proposal</span><p><a href="${esc(c.drive)}" target="_blank" rel="noopener">Open in Drive</a></p></div>` : ""}
+        ${props(c).length ? `<div><span>Proposals · ${props(c).length}</span>${props(c).map(x => `<p><a href="${esc(x.url)}" target="_blank" rel="noopener">${esc(x.name || "Proposal")}</a>${x.t ? ` <span class="mono muted">${fmt(x.t)}</span>` : ""}</p>`).join("")}</div>` : ""}
         <div><span>Last touch</span><p>${c.last ? fmt(c.last) + " · " + rel(c.last) : "No email yet"}</p></div></div>
       <div class="drawer-acts">${c.dismissed
         ? `<button class="cta ghost" data-restore="${esc(c.id)}">${ICON.undo} Restore to pipeline</button>`
@@ -264,7 +269,7 @@ function mountLedger(R, OPT) {
     if (!$("#body")) return shell();
     const keep = { q: st.q };
     const live = st.data.filter(c => !c.dismissed);
-    const counts = { active: live.filter(isActive).length, followup: live.filter(needsFollow).length, board: live.length, all: live.length, past: st.data.filter(c => c.dismissed).length };
+    const counts = { active: live.filter(isActive).length, followup: live.filter(needsFollow).length, board: live.length, paying: live.filter(isPaying).length, all: live.length, past: st.data.filter(c => c.dismissed).length };
     $$("[data-view]").forEach(b => { const ct = b.querySelector(".ct"); if (ct) ct.textContent = counts[b.dataset.view]; });
     $$("[data-tile]").forEach(b => { const v = b.querySelector("b"); if (v) v.textContent = live.filter(c => pipe(c) === b.dataset.tile).length; });
     const bell = $("#bell .dot"); if (bell) bell.textContent = counts.followup;
