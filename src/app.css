@@ -173,7 +173,7 @@ button { cursor: pointer; }
 .tile .ic { font: 600 16px/1 var(--mono); }
 
 .board-scroll { overflow-x: auto; margin: 0 -4px; padding: 4px 4px 12px; scroll-snap-type: x proximity; }
-.board { display: grid; grid-template-columns: repeat(4, minmax(260px, 1fr)); gap: 12px; min-width: 1088px; }
+.board { display: grid; grid-template-columns: repeat(3, minmax(260px, 1fr)) minmax(170px, .55fr); gap: 12px; min-width: 980px; }
 .col { border-radius: 20px; padding: 10px; display: flex; flex-direction: column; gap: 10px; scroll-snap-align: start; min-width: 0; }
 .col header { display: flex; align-items: center; gap: 8px; padding: 4px 6px 2px; }
 .col header i { width: 8px; height: 8px; border-radius: 50%; background: var(--c); box-shadow: 0 0 0 4px color-mix(in srgb, var(--c) 18%, transparent); }
@@ -200,3 +200,8 @@ button { cursor: pointer; }
 .tag.pdf:hover { background: color-mix(in srgb, var(--peach) 14%, transparent); }
 .kv .muted { color: var(--faint); font-size: 11.5px; }
 .kv p + p { margin-top: 4px; }
+
+.paycol { background: color-mix(in srgb, var(--mint) 6%, var(--glass)); }
+.paydrop { flex: 1; display: grid; place-items: center; text-align: center; border: 1.5px dashed color-mix(in srgb, var(--mint) 45%, transparent); padding: 18px 12px; }
+.paydrop p { margin: 0; color: var(--muted); font-size: 12.5px; line-height: 1.5; }
+.linkbtn { border: 0; background: none; padding: 0; color: var(--mint); font: inherit; text-decoration: underline; text-underline-offset: 2px; }

@@ -8,10 +8,10 @@ function mountLedger(R, OPT) {
     ["paying", "Paying", "var(--mint)"]];
   const P = Object.fromEntries(PIPE.map(p => [p[0], p]));
   const FROM_STAGE = { active: "paying", advanced: "working", partner: "working", early: "call", stalled: "call", proposal: "proposal", target: "proposal" };
-  const VIEWS = [["active", "Active"], ["followup", "Follow-up"], ["board", "Board"], ["paying", "Paying"], ["all", "All"], ["past", "Past"]];
+  const VIEWS = [["board", "Board"], ["active", "Active"], ["followup", "Follow-up"], ["paying", "Paying"], ["all", "All"], ["past", "Past"]];
   const INIT = { Amit: "AM", Jeremy: "JB", Camille: "CN", Troy: "TA", Maxwell: "MS", Max: "MM", Derek: "DD", Bryan: "BR" };
   const DIR = { out: "Sent", in: "Received", int: "Internal", cal: "Calendar" };
-  let VIEW = "active";
+  let VIEW = "board";
   try { const h = location.hash.slice(1); if (VIEWS.some(v => v[0] === h)) VIEW = h; } catch (e) {}
   const st = { view: VIEW, chip: "all", sort: "recent", q: "", data: [], user: null };
   const esc = s => String(s ?? "").replace(/[&<>"]/g, m => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[m]));
@@ -120,7 +120,7 @@ function mountLedger(R, OPT) {
 
   function shell() {
     const live = st.data.filter(c => !c.dismissed);
-    const counts = { active: live.filter(isActive).length, followup: live.filter(needsFollow).length, board: live.length, paying: live.filter(isPaying).length, all: live.length, past: st.data.filter(c => c.dismissed).length };
+    const counts = { active: live.filter(isActive).length, followup: live.filter(needsFollow).length, board: live.filter(c => pipe(c) !== "paying").length, paying: live.filter(isPaying).length, all: live.length, past: st.data.filter(c => c.dismissed).length };
     const ownerInit = st.user ? (st.user.displayName || st.user.email || "AM").split(/[\s@.]/).slice(0, 2).map(w => w[0]).join("").toUpperCase() : "AM";
     const tile = (k, label, sub, i) => { const n = live.filter(c => pipe(c) === k).length;
       return `<button class="tile glass" data-tile="${k}" style="--i:${i}"><span class="ic" style="background:${P[k][2]}">${i + 1}</span><span><small>${label}</small><b>${n}</b><span class="sub">${sub}</span></span></button>`; };
@@ -174,7 +174,7 @@ function mountLedger(R, OPT) {
     active: ["Active opportunities", n => `${n} past the proposal and not yet paying: first call or working through it.`],
     followup: ["Needs follow-up", n => `${n} open opportunities where we wrote last and heard nothing in 7+ days, or nobody has written in 21+ days. Oldest first. Paying customers are not listed here.`],
     paying: ["Paying customers", n => `${n} closed and paying. Moved off the Active view; move one back with its status bar if it stops paying.`],
-    board: ["Pipeline board", n => `${n} open opportunities. Drag a card to another column, or tap a step on the card.`],
+    board: ["Pipeline board", n => `${n} open opportunities. Drag a card to another column, or tap a step on the card. Drop on Paying to move a customer to the Paying tab.`],
     all: ["All open opportunities", n => `${n} open opportunities across every status.`],
     past: ["Past opportunities", n => `${n} dismissed. They stay here with their history; restore any of them to put them back in the pipeline.`] };
 
@@ -212,11 +212,16 @@ function mountLedger(R, OPT) {
     const rows = rowsFor(st.view), [t, s] = TITLES[st.view];
     $("#title").textContent = t; $("#sub").textContent = s(rows.length);
     if (st.view === "board") {
-      el.innerHTML = `<div class="board-scroll"><div class="board${animate ? " anim" : ""}">${PIPE.map(([k, l, col]) => {
+      const payN = rows.filter(c => pipe(c) === "paying").length;
+      el.innerHTML = `<div class="board-scroll"><div class="board${animate ? " anim" : ""}">${PIPE.filter(p => p[0] !== "paying").map(([k, l, col]) => {
         const items = rows.filter(c => pipe(c) === k);
         return `<section class="col glass" data-col="${k}" style="--c:${col}"><header><i></i><b>${l}</b><span class="mono">${items.length}</span></header>
           <div class="drop" data-drop="${k}">${items.map((c, i) => card(c, i, { drag: true, compact: true })).join("") || `<p class="empty-col">Drop a card here</p>`}</div></section>`;
-      }).join("")}</div></div>`;
+      }).join("")}
+        <section class="col paycol glass" data-col="paying" style="--c:${P.paying[2]}"><header><i></i><b>Paying</b><span class="mono">${payN}</span></header>
+          <div class="drop paydrop" data-drop="paying"><p>Drop a card here when they start paying. It moves to the <button class="linkbtn" data-goto="paying">Paying tab</button>.</p></div></section>
+      </div></div>`;
+      el.querySelectorAll("[data-goto]").forEach(b => b.onclick = () => go(b.dataset.goto));
       wireCards(el); wireDrag(el);
       return;
     }
@@ -269,7 +274,7 @@ function mountLedger(R, OPT) {
     if (!$("#body")) return shell();
     const keep = { q: st.q };
     const live = st.data.filter(c => !c.dismissed);
-    const counts = { active: live.filter(isActive).length, followup: live.filter(needsFollow).length, board: live.length, paying: live.filter(isPaying).length, all: live.length, past: st.data.filter(c => c.dismissed).length };
+    const counts = { active: live.filter(isActive).length, followup: live.filter(needsFollow).length, board: live.filter(c => pipe(c) !== "paying").length, paying: live.filter(isPaying).length, all: live.length, past: st.data.filter(c => c.dismissed).length };
     $$("[data-view]").forEach(b => { const ct = b.querySelector(".ct"); if (ct) ct.textContent = counts[b.dataset.view]; });
     $$("[data-tile]").forEach(b => { const v = b.querySelector("b"); if (v) v.textContent = live.filter(c => pipe(c) === b.dataset.tile).length; });
     const bell = $("#bell .dot"); if (bell) bell.textContent = counts.followup;
